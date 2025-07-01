@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Image to WebP Converter</title>
+  <!-- Tailwind for styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- JSZip for zipping multiple images -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    img.preview { max-width: 120px; max-height: 120px; border-radius: 6px; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <h1 class="text-3xl font-bold text-center mt-8 mb-6 text-gray-800">Image to WebP Converter</h1>
+
+  <div id="controls" class="flex flex-wrap justify-center gap-4 mb-8">
+    <div class="bg-white rounded shadow px-3 py-2 flex items-center gap-2">
+      <span class="font-medium">Max Width:</span>
+      <span class="text-blue-700">3840 px</span>
+    </div>
+    <div class="bg-white rounded shadow px-3 py-2 flex items-center gap-2">
+      <span class="font-medium">Max Height:</span>
+      <span class="text-blue-700">9999 px</span>
+    </div>
+    <div class="bg-white rounded shadow px-3 py-2 flex items-center gap-2">
+      <span class="font-medium">Quality:</span>
+      <span class="text-blue-700">0.95</span>
+    </div>
+  </div>
+
+  <div id="drop-area" class="border-2 border-dashed border-blue-400 rounded-lg p-8 text-center text-blue-500 mb-8 bg-white shadow hover:shadow-lg transition-shadow cursor-pointer max-w-2xl mx-auto">
+    <p class="mb-4">Drag & drop your image files here</p>
+    <input type="file" id="fileElem" accept="image/*" multiple hidden>
+    <button onclick="fileElem.click()" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2 rounded shadow transition-colors">
+      Select Images
+    </button>
+  </div>
+
+  <div id="progress" class="text-center text-lg font-medium text-blue-700 mb-4"></div>
+  <a id="download-link" href="#" download="converted_images.zip" class="hidden bg-green-500 hover:bg-green-600 text-white font-semibold px-6 py-2 rounded shadow transition-colors mx-auto block w-fit">
+    Download All as ZIP
+  </a>
+
+  <div class="overflow-x-auto max-w-5xl mx-auto px-2 sm:px-4">
+    <table id="preview-table" class="min-w-full bg-white rounded shadow mb-8 text-sm sm:text-base table-auto hidden">
+      <thead>
+        <tr class="bg-blue-100 text-blue-900">
+          <th class="py-2 px-4">#</th>
+          <th class="py-2 px-4">Preview</th>
+          <th class="py-2 px-4">Original Filename</th>
+          <th class="py-2 px-4">WebP Size</th>
+          <th class="py-2 px-4">Download</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    const MAX_WIDTH = 3840, MAX_HEIGHT = 9999, QUALITY = 0.95;
+    const dropArea = document.getElementById('drop-area');
+    const fileElem = document.getElementById('fileElem');
+    const progress = document.getElementById('progress');
+    const downloadLink = document.getElementById('download-link');
+    const previewTable = document.getElementById('preview-table');
+    const previewTbody = previewTable.querySelector('tbody');
+
+    ['dragover','dragleave','drop'].forEach(ev => {
+      dropArea.addEventListener(ev, e => {
+        e.preventDefault();
+        dropArea.style.borderColor = ev==='dragover' ? '#333' : '#888';
+        if (ev==='drop') handleFiles(e.dataTransfer.files);
+      });
+    });
+    fileElem.addEventListener('change', e => handleFiles(e.target.files));
+
+    function handleFiles(files) {
+      const images = Array.from(files).filter(f => f.type.startsWith('image/'));
+      if (!images.length) return alert('Please select image files only.');
+      progress.textContent = `Processing ${images.length}…`;
+      previewTbody.innerHTML = '';
+      previewTable.classList.remove('hidden');
+      processImages(images);
+    }
+
+    async function processImages(files) {
+      const zip = new JSZip();
+      let done = 0;
+      for (let i=0; i<files.length; i++) {
+        const f = files[i];
+        try {
+          const blob = await convertToWebP(f);
+          const name = f.name.replace(/\.[^.]+$/, '') + '.webp';
+          zip.file(name, blob);
+          showPreview(i+1, f, blob, name);
+        } catch {
+          showError(i+1, f.name);
+        }
+        progress.textContent = `Processed ${++done} of ${files.length}.`;
+      }
+      if (files.length > 1) {
+        const z = await zip.generateAsync({type:'blob'});
+        downloadLink.href = URL.createObjectURL(z);
+        downloadLink.classList.remove('hidden');
+        progress.textContent = 'All done – grab your ZIP below!';
+      }
+    }
+
+    function showPreview(i, f, b, filename) {
+      const tr = document.createElement('tr');
+      const reader = new FileReader();
+      reader.onload = e => {
+        const size = b.size < 1024*1024 ? (b.size/1024).toFixed(1)+' KB' : (b.size/1024/1024).toFixed(2)+' MB';
+        tr.innerHTML = `
+          <td class="py-2 px-4">${i}</td>
+          <td class="py-2 px-4"><img class="preview" src="${e.target.result}"></td>
+          <td class="py-2 px-4 break-words">${f.name}</td>
+          <td class="py-2 px-4">${size}</td>
+          <td class="py-2 px-4"><a href="${URL.createObjectURL(b)}" download="${filename}" class="hover:underline">Download</a></td>
+        `;
+        previewTbody.appendChild(tr);
+      };
+      reader.readAsDataURL(b);
+    }
+
+    function showError(i, name) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="py-2 px-4">${i}</td>
+        <td class="py-2 px-4 text-red-500" colspan="4">Failed to convert ${name}</td>
+      `;
+      previewTbody.appendChild(tr);
+    }
+
+    function convertToWebP(file) {
+      return new Promise((res, rej) => {
+        const img = new Image();
+        img.onload = () => {
+          const [w,h] = [img.width, img.height];
+          const scale = Math.min(MAX_WIDTH/w, MAX_HEIGHT/h, 1);
+          const [nw,nh] = [w*scale|0, h*scale|0];
+          const canvas = Object.assign(document.createElement('canvas'), {width: nw, height: nh});
+          canvas.getContext('2d').drawImage(img,0,0,nw,nh);
+          canvas.toBlob(b => b ? res(b) : rej(new Error('Conversion failed')), 'image/webp', QUALITY);
+        };
+        img.onerror = rej;
+        img.src = URL.createObjectURL(file);
+      });
+    }
+  </script>
+</body>
+</html>
